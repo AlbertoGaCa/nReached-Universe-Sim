@@ -19,6 +19,10 @@ import hashlib
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+import xml.etree.ElementTree as ET
+import urllib.request
+import gzip
+import io
 
 # ══════════════════════════════════════════════════════════════════
 #  CONSTANTES FÍSICAS (SI + Astronómicas)
@@ -421,6 +425,73 @@ class Planeta:
 
 
 # ══════════════════════════════════════════════════════════════════
+#  CATÁLOGO OEC (OPEN EXOPLANET CATALOGUE)
+# ══════════════════════════════════════════════════════════════════
+
+_OEC_CACHE = None
+
+def _cargar_catalogo_oec():
+    global _OEC_CACHE
+    if _OEC_CACHE is not None:
+        return
+    
+    import os
+    print("\n  [INFO] Cargando Open Exoplanet Catalogue...")
+    try:
+        if os.path.exists("systems.xml"):
+            tree = ET.parse("systems.xml")
+            print("  [INFO] Se utilizó la versión local (offline) del catálogo.")
+        else:
+            url = "https://github.com/OpenExoplanetCatalogue/oec_gzip/raw/master/systems.xml.gz"
+            print("  [INFO] Descargando Open Exoplanet Catalogue...")
+            request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            response = urllib.request.urlopen(request)
+            compressed_file = io.BytesIO(response.read())
+            decompressed_file = gzip.GzipFile(fileobj=compressed_file)
+            tree = ET.parse(decompressed_file)
+            
+        root = tree.getroot()
+        
+        sistemas_validos = []
+        for system in root.findall('.//system'):
+            name_elem = system.find('name')
+            if name_elem is not None:
+                system_name = name_elem.text
+                star_elem = system.find('.//star')
+                if star_elem is not None:
+                    mass_elem = star_elem.find('mass')
+                    if mass_elem is not None and mass_elem.text is not None:
+                        try:
+                            mass = float(mass_elem.text)
+                            sistemas_validos.append((system_name, mass))
+                        except ValueError:
+                            pass
+        _OEC_CACHE = sistemas_validos
+        print(f"  [INFO] Se cargaron {len(_OEC_CACHE)} sistemas del catálogo.")
+    except Exception as e:
+        print(f"  [ERROR] No se pudo acceder al catálogo OEC: {e}")
+        _OEC_CACHE = []
+
+def obtener_estrella_oec(nombre_seed: str, rng: random.Random) -> tuple:
+    _cargar_catalogo_oec()
+
+    if not _OEC_CACHE:
+        return nombre_seed, rng.uniform(0.6, 1.5)
+
+    for sys_name, mass in _OEC_CACHE:
+        if sys_name.upper() == nombre_seed.upper():
+            return sys_name, mass
+            
+    print(f"  [INFO] Sistema '{nombre_seed}' no encontrado en OEC. Eligiendo uno al azar deterministamente...")
+    return rng.choice(_OEC_CACHE)
+
+def obtener_sistema_aleatorio_oec() -> str:
+    _cargar_catalogo_oec()
+    if _OEC_CACHE:
+        return random.choice(_OEC_CACHE)[0]
+    return "SOL-442"
+
+# ══════════════════════════════════════════════════════════════════
 #  SISTEMA ESTELAR
 # ══════════════════════════════════════════════════════════════════
 
@@ -444,7 +515,8 @@ class SistemaEstelar:
 
     def _generar(self):
         # ── 1. Estrella ──
-        masa_estelar = self.rng_sistema.uniform(0.6, 1.5)
+        nombre_real, masa_estelar = obtener_estrella_oec(self.seed, self.rng_sistema)
+        self.seed = nombre_real
         self.estrella = Estrella(masa_estelar)
 
         # ── 2. Acreción de Protoplanetas ──
@@ -490,12 +562,12 @@ class SistemaEstelar:
         ancho = 72
         print("\n" + "═" * ancho)
         print("🌌  SIMULADOR DE SISTEMAS ESTELARES Y EXOPLANETAS".center(ancho))
-        print(f"    Seed: «{self.seed}»".center(ancho))
+        print(f"    Sistema / Estrella: {self.seed}  |  Origen: Catálogo Real (OEC)".center(ancho))
         print("═" * ancho)
 
         # Estrella
         e = self.estrella
-        print(f"\n  ☀  ESTRELLA  —  Clase {e.clasificar()} ({e.color_visual()})")
+        print(f"\n  ☀  ESTRELLA: {self.seed}  —  Clase {e.clasificar()} ({e.color_visual()})")
         print(f"     Masa:          {e.masa:.3f} M☉")
         print(f"     Luminosidad:   {e.luminosidad:.4f} L☉")
         print(f"     Radio:         {e.radio:.3f} R☉")
@@ -530,8 +602,12 @@ class SistemaEstelar:
 
         temp_c = p.temp_superficie + C.ABS_ZERO
 
+        # Sufijo astronómico b, c, d... 
+        sufijo = chr(97 + idx) if idx <= 25 else str(idx)
+        nombre_planeta = f"{self.seed} {sufijo}"
+
         print("─" * ancho)
-        print(f" {icono}  PLANETA {idx}  ─  {p.tipo.upper()}", end="")
+        print(f" {icono}  {nombre_planeta}  ─  {p.tipo.upper()}", end="")
         if p.en_zona_hab and p.tipo in (Planeta.ROCOSO, Planeta.SUPER_TIERRA):
             print("  ✦ ZONA HABITABLE", end="")
         print()
@@ -575,6 +651,8 @@ class SistemaEstelar:
 # ══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import string
+    
     # Lectura de seed desde argumentos de línea de comandos
     seed = "SOL-442"  # Seed por defecto
 
@@ -586,8 +664,31 @@ if __name__ == "__main__":
     elif args:
         seed = args[0]
 
-    print(f"\n  Usando seed: «{seed}»")
-    print("  (Pasa otra seed como argumento para explorar otro sistema)\n")
-
-    sistema = SistemaEstelar(seed=seed)
-    sistema.renderizar()
+    while True:
+        print(f"\n  Usando seed: «{seed}»\n")
+        sistema = SistemaEstelar(seed=seed)
+        sistema.renderizar()
+        
+        print("\n" + "═" * 72)
+        print(" ¿QUÉ DESEAS EXPLORAR AHORA? ".center(72, "═"))
+        print("═" * 72)
+        print(" 1. Explorar un sistema estelar aleatorio del catálogo (Nombres reales)")
+        print(" 2. Ingresar el nombre de una estrella específica del catálogo")
+        print(" 3. Salir de la simulación")
+        print("═" * 72)
+        
+        opcion = input("\nSelecciona una opción (1-3): ").strip()
+        
+        if opcion == "1":
+            seed = obtener_sistema_aleatorio_oec()
+        elif opcion == "2":
+            nueva_seed = input("Ingresa el nombre del sistema estelar (ej. TRAPPIST-1): ").strip()
+            if nueva_seed:
+                seed = nueva_seed
+            else:
+                print("⚠️  No ingresaste ningún nombre. Se mantendrá la actual.")
+        elif opcion == "3":
+            print("\n  Cerrando sistema de navegación. ¡Hasta la próxima exploración!\n")
+            break
+        else:
+            print("\n⚠️  Opción no reconocida. Por favor ingresa 1, 2 o 3.")
