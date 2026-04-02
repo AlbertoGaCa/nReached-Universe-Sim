@@ -30,28 +30,41 @@ import io
 
 class C:
     # Unidades astronómicas
-    UA_A_KM             = 1.496e8          # 1 UA en km
-    RADIO_SOLAR_UA      = 0.00465047       # Radio del Sol en UA
-    MASA_TERRESTRE_SOLAR = 3.003e-6        # Masa de la Tierra en masas solares
-    RADIO_TERRESTRE_KM  = 6371.0           # km
+    UA_A_KM              = 1.496e8          # 1 UA en km
+    RADIO_SOLAR_UA       = 0.00465047       # Radio del Sol en UA
+    MASA_TERRESTRE_SOLAR = 3.003e-6         # Masa de la Tierra en masas solares
+    RADIO_TERRESTRE_KM   = 6371.0           # km
 
     # Físicas
-    SIGMA               = 5.670e-8         # Stefan-Boltzmann (W m⁻² K⁻⁴)
-    G                   = 6.674e-11        # Constante gravitacional (N m² kg⁻²)
+    SIGMA                = 5.670e-8         # Stefan-Boltzmann (W m⁻² K⁻⁴)
+    G                    = 6.674e-11        # Constante gravitacional (N m² kg⁻²)
 
     # Estelares de referencia (Sol)
-    TEMP_SOL            = 5778.0           # K
-    MASA_SOL_KG         = 1.989e30         # kg
-    RADIO_SOL_KM        = 695700.0         # km
-    LUM_SOL             = 3.828e26         # W
+    TEMP_SOL             = 5778.0           # K
+    MASA_SOL_KG          = 1.989e30         # kg
+    RADIO_SOL_KM         = 695700.0         # km
+    LUM_SOL              = 3.828e26         # W
 
     # Termodinámicas
-    ABS_ZERO            = -273.15          # °C → K offset
+    ABS_ZERO             = -273.15          # °C → K offset
 
     # Zona Habitable (Kopparapu 2013, límites conservadores)
-    ZH_INTERIOR         = 1.1              # Factor para límite interior
-    ZH_EXTERIOR         = 0.53             # Factor para límite exterior
-    LINEA_NIEVE         = 2.7              # Factor para línea de nieve
+    ZH_INTERIOR          = 1.1             # Factor para límite interior
+    ZH_EXTERIOR          = 0.53            # Factor para límite exterior
+    LINEA_NIEVE          = 2.7             # Factor para línea de nieve
+
+    # Referencia terrestre para ESI (Schulze-Makuch et al. 2011)
+    ESI_T_REF            = 288.0           # K — temperatura media global Tierra
+    ESI_RHO_REF          = 1.0             # densidad relativa normalizada
+    ESI_VESC_REF         = 1.0             # velocidad de escape relativa normalizada
+    ESI_R_REF            = 1.0             # radio en R⊕
+
+    # Umbrales fisiológicos humanos para IHH
+    IHH_ARMSTRONG        = 0.0618          # atm — por encima los fluidos corporales hierven
+    IHH_TEMP_MIN_ABS     = -90.0           # °C — mínimo absoluto de supervivencia
+    IHH_TEMP_MAX_ABS     = 150.0           # °C — máximo absoluto de supervivencia
+    IHH_G_MIN            = 0.15            # g⊕ — colapso cardiovascular por debajo
+    IHH_G_MAX            = 3.5             # g⊕ — colapso cardiovascular por encima
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -92,7 +105,6 @@ class Estrella:
         self.radio       = masa_solar ** 0.8                   # R☉
 
         # Temperatura efectiva via Stefan-Boltzmann: L = 4πR²σT⁴
-        # T = T☉ · (L☉/L_rel · R_rel²)^-0.25 simplificado con relaciones de escala:
         self.temperatura = C.TEMP_SOL * (self.luminosidad ** 0.25) / (self.radio ** 0.5)
 
         # Zonas orbitales (en UA)
@@ -139,7 +151,6 @@ class Luna:
     @classmethod
     def desde_impacto(cls, masa_padre: float, rng: random.Random) -> "Luna":
         """Lunas de impacto gigante o captura gravitacional (pueden ser masivas)."""
-        # Similar a Tierra-Luna: la Luna es ~1.2% de la masa terrestre
         masa  = rng.uniform(0.005, min(0.15, masa_padre * 0.12))
         radio = masa ** 0.28
         return cls(masa=masa, radio=radio, tipo="Rocosa (Impacto/Captura)")
@@ -163,7 +174,6 @@ class Planeta:
         self.estrella           = estrella
         self.rng                = rng
 
-        # Resultado de cálculos (se llenan en métodos siguientes)
         self.tipo         = ""
         self.masa         = 0.0        # M⊕
         self.radio        = 0.0        # R⊕
@@ -176,6 +186,10 @@ class Planeta:
         self.en_zona_hab  = False
         self.lunas: list[Luna] = []
         self.notas: list[str] = []
+
+        # ── Nuevos índices ──────────────────────────────────────────
+        self.esi  = 0.0   # Earth Similarity Index (0–100%)
+        self.ihh  = 0.0   # Índice de Habitabilidad Humana (0–100%)
 
         self._formacion_primordial()
         self._calcular_estructura()
@@ -204,17 +218,14 @@ class Planeta:
     def _calcular_estructura(self):
         """Radio, gravedad y radio de Hill."""
         if self.tipo in (self.ROCOSO, self.SUPER_TIERRA):
-            # Relación masa-radio para planetas sólidos (Seager et al.)
             self.radio = self.masa ** 0.274
         elif self.tipo == self.GIGANTE_HELADO:
             self.radio = self.masa ** 0.35
         elif self.tipo == self.GIGANTE_GASEOSO:
-            # Los gigantes gaseosos son más compresibles: radio no crece linealmente
             self.radio = 10.0 + math.log10(max(1.0, self.masa / 100.0)) * 2.5
 
-        self.gravedad = self.masa / (self.radio ** 2)  # g relativa a la Tierra
+        self.gravedad = self.masa / (self.radio ** 2)
 
-        # Radio de Hill: zona de influencia gravitacional
         masa_solar = self.masa * C.MASA_TERRESTRE_SOLAR
         self.radio_hill = self.distancia * ((masa_solar / (3.0 * self.estrella.masa)) ** (1.0 / 3.0))
 
@@ -223,48 +234,37 @@ class Planeta:
     def evolucionar_clima_y_vida(self):
         """
         Ejecutar DESPUÉS de la migración orbital.
-        Calcula temperatura real, atmósfera, efecto invernadero y probabilidad de vida.
+        Calcula temperatura real, atmósfera, efecto invernadero,
+        probabilidad de vida, ESI e IHH.
         """
         self.en_zona_hab = self.estrella.zona_hab_int <= self.distancia <= self.estrella.zona_hab_ext
 
-        # ── 1. Temperatura de equilibrio (cuerpo negro sin atmósfera) ──
-        #   T_eq = T_estrella · √(R_estrella_UA / 2·d) · (1-A)^0.25
-        #   donde R_estrella_UA = radio estelar en UA (factor geométrico correcto)
         albedo = self._albedo_primordial()
         r_estelar_ua = self.estrella.radio * C.RADIO_SOLAR_UA
         temp_eq = (self.estrella.temperatura
                    * math.sqrt(r_estelar_ua / (2.0 * self.distancia))
                    * ((1.0 - albedo) ** 0.25))
 
-        # ── 2. Atmósfera ──
         self._generar_atmosfera(temp_eq)
-
-        # ── 3. Efecto invernadero (modelo de capas ópticas) ──
         delta_t = self._efecto_invernadero()
         self.temp_superficie = temp_eq + delta_t
 
-        # ── 4. Probabilidad de vida ──
         self._calcular_prob_vida()
-
-        # ── 5. Lunas ──
         self._generar_lunas()
 
+        # ── Calcular índices derivados ──
+        self.esi = self._calcular_esi()
+        self.ihh = self._calcular_ihh()
+
     def _albedo_primordial(self) -> float:
-        """Albedo según tipo: rocoso más oscuro, gaseosos más brillantes."""
         if self.tipo in (self.ROCOSO, self.SUPER_TIERRA):
-            return self.rng.uniform(0.10, 0.45)   # De tipo Mercurio a tipo Venus sin nubes
+            return self.rng.uniform(0.10, 0.45)
         elif self.tipo == self.GIGANTE_HELADO:
-            return self.rng.uniform(0.40, 0.70)   # Alta reflectividad de hielo
-        else:  # Gaseoso / Júpiter Caliente
+            return self.rng.uniform(0.40, 0.70)
+        else:
             return self.rng.uniform(0.30, 0.65)
 
     def _generar_atmosfera(self, temp_eq: float):
-        """
-        Generación atmosférica física:
-        - El escape de Jeans purga atmósferas en planetas calientes y poco masivos.
-        - Planetas masivos retienen H2/He primordial.
-        - La desgasificación volcánica domina en rocosos masivos y fríos.
-        """
         es_rocoso = self.tipo in (self.ROCOSO, self.SUPER_TIERRA)
 
         if self.tipo == self.JUPTER_CALIENTE:
@@ -284,9 +284,6 @@ class Planeta:
                               "Metano (CH4)": 8.0, "Amoníaco (NH3)": 4.0}
             return
 
-        # ── Planetas Rocosos / Super-Tierras ──
-        # Escape de Jeans simplificado: velocidad térmica vs velocidad de escape
-        #   Si T_eq > 600K y gravedad < 0.4: la atmósfera se evapora
         if temp_eq > 600 and self.gravedad < 0.4:
             self.presion_atm = 0.0
             self.atmosfera = {"Vacío (trazas)": 100.0}
@@ -299,11 +296,9 @@ class Planeta:
             self.notas.append("Irradiación extrema — posible lava en superficie.")
             return
 
-        # Presión determinada por geología + masa
-        base_presion = self.gravedad ** 1.5  # Gravedad alta → retiene más gas
+        base_presion = self.gravedad ** 1.5
         self.presion_atm = self.rng.uniform(0.005, 120.0) * base_presion
 
-        # Composición volcánica base (pre-vida)
         co2  = self.rng.uniform(75.0, 96.0)
         n2   = 100.0 - co2 - self.rng.uniform(0.5, 2.0)
         self.atmosfera = {
@@ -312,48 +307,27 @@ class Planeta:
         }
 
     def _efecto_invernadero(self) -> float:
-        """
-        Modelo de efecto invernadero por capas ópticas.
-        
-        Basado en la aproximación de forzamiento radiativo:
-            ΔT ≈ λ · F  donde λ es la sensibilidad climática y F el forzamiento.
-        
-        Para CO2:  F_CO2 = 5.35 · ln(p_CO2 / p_ref)   [W/m²]
-        Para CH4:  F_CH4 ≈ 0.036 · √(p_CH4)           [W/m²]
-        La sensibilidad λ ≈ 0.8 K/(W/m²) para terrestre, mayor a alta presión.
-        """
         if self.presion_atm <= 0 or self.tipo not in (self.ROCOSO, self.SUPER_TIERRA):
             return 0.0
 
         delta_t = 0.0
 
-        # Contribución CO2
         frac_co2 = self.atmosfera.get("Dióxido de Carbono (CO2)", 0.0) / 100.0
-        p_co2_atm = frac_co2 * self.presion_atm   # presión parcial de CO2
+        p_co2_atm = frac_co2 * self.presion_atm
 
         if p_co2_atm > 1e-6:
-            # Venus tiene ~92 atm de CO2 → +460°C de invernadero
             F_co2 = 5.35 * math.log(p_co2_atm / 0.0004 + 1.0)
             sensibilidad = 0.8 * math.log10(self.presion_atm + 1.5)
             delta_t += sensibilidad * F_co2
 
-        # Contribución CH4 (si aplica)
         frac_ch4 = self.atmosfera.get("Metano (CH4)", 0.0) / 100.0
         p_ch4_ppm = frac_ch4 * self.presion_atm * 1e6
         if p_ch4_ppm > 1.0:
             delta_t += 0.036 * math.sqrt(p_ch4_ppm)
 
-        # Cap físico: no puede ser mayor que ~600K (punto de fuga terrestre)
         return min(delta_t, 600.0)
 
     def _calcular_prob_vida(self):
-        """
-        Índice de habitabilidad basado en:
-        - Temperatura en rango de agua líquida (0-100°C)
-        - Presión suficiente para agua líquida (>0.006 atm)
-        - Gravedad compatible con bioquímica (0.3–2.5 g)
-        - Zona habitable orbital
-        """
         if self.tipo not in (self.ROCOSO, self.SUPER_TIERRA):
             self.prob_vida = 0.0
             return
@@ -369,18 +343,12 @@ class Planeta:
             self.prob_vida = 0.0
             return
 
-        # Score de temperatura: óptimo en 10-30°C (Tierra ~15°C media)
         t_optima = 15.0
-        sigma_t  = 35.0   # desviación estándar de tolerancia
+        sigma_t  = 35.0
         score_t  = 100.0 * math.exp(-((temp_c - t_optima) ** 2) / (2 * sigma_t ** 2))
-
-        # Score de gravedad: óptimo en 1.0 g
-        score_g = max(0.0, 100.0 - (abs(self.gravedad - 1.0) * 60.0))
-
-        # Score de zona habitable orbital
+        score_g  = max(0.0, 100.0 - (abs(self.gravedad - 1.0) * 60.0))
         score_zh = 25.0 if self.en_zona_hab else 0.0
 
-        # Score de presión: óptima entre 0.5 y 5 atm
         if 0.5 <= self.presion_atm <= 5.0:
             score_p = 20.0
         elif 0.006 <= self.presion_atm < 0.5:
@@ -388,24 +356,199 @@ class Planeta:
         elif self.presion_atm < 100.0:
             score_p = 5.0
         else:
-            score_p = 2.0  # Presiones extremas tipo Venus
+            score_p = 2.0
 
         self.prob_vida = min(100.0, (score_t * 0.45) + (score_g * 0.25) + score_zh + score_p)
 
-        # Evolución atmosférica por vida fotosintética
         if self.prob_vida > 55.0:
             self.atmosfera = {"Nitrógeno (N2)": 78.0, "Oxígeno (O2)": 21.0, "Argón (Ar)": 1.0}
             self.notas.append("Atmósfera oxidante — posible biosfera fotosintética activa.")
             self.prob_vida = min(100.0, self.prob_vida + self.rng.uniform(8.0, 18.0))
 
-    def _generar_lunas(self):
+    # ══════════════════════════════════════════════════════════════
+    #  ESI — EARTH SIMILARITY INDEX
+    #  Schulze-Makuch et al. (2011), Astrobiology 11(10):1041-1052
+    #  DOI: 10.1089/ast.2010.0592
+    # ══════════════════════════════════════════════════════════════
+
+    def _calcular_esi(self) -> float:
         """
-        Formación de satélites naturales:
-        - Rocosos: impactos gigantes (raros) → 0-2 lunas masivas.
-        - Gigantes: disco de acreción circunplanetario → múltiples lunas pequeñas.
+        Índice de Similaridad Terrestre (ESI).
         
-        Usa self._seed_token (inyectado por SistemaEstelar) para determinismo total.
+        Fórmula original (Schulze-Makuch et al. 2011):
+            ESI_i = (1 - |x_i - x_0| / (x_i + x_0)) ^ (w_i / n)
+            ESI   = ∏ ESI_i
+        
+        Donde x_i es el valor planetario, x_0 el terrestre de referencia,
+        w_i el peso de sensibilidad y n el número de parámetros.
+        
+        Parámetros y pesos (ajustados para el modelo de este simulador):
+          ┌─────────────────────────┬──────────┬───────────────────────┐
+          │ Parámetro               │   w_i    │ Referencia (Tierra)   │
+          ├─────────────────────────┼──────────┼───────────────────────┤
+          │ Radio (R⊕)              │  0.57    │ 1.0 R⊕                │
+          │ Densidad relativa       │  1.07    │ 1.0 (normalizada)     │
+          │ Velocidad de escape     │  0.70    │ 1.0 (normalizada)     │
+          │ Temperatura superficie  │  5.58    │ 288 K (15°C media)    │
+          └─────────────────────────┴──────────┴───────────────────────┘
+        
+        El peso altísimo de la temperatura (5.58) refleja que incluso
+        pequeñas desviaciones térmicas degradan el ESI drásticamente —
+        Mars tiene ESI ~0.64 principalmente por su T_media de -60°C.
+        
+        Solo aplicable a cuerpos rocosos (ESI ~0 para gigantes gaseosos
+        por convención del catálogo HEC).
         """
+        if self.tipo not in (self.ROCOSO, self.SUPER_TIERRA):
+            return 0.0
+
+        def esi_factor(x_p: float, x_0: float, w: float) -> float:
+            """Factor de un parámetro individual."""
+            if x_p + x_0 <= 0:
+                return 0.0
+            return (1.0 - abs(x_p - x_0) / (x_p + x_0)) ** w
+
+        # Densidad relativa: ρ ∝ masa / radio³
+        # (Normalizada contra Tierra = 1.0 → comparación relativa directa)
+        rho_p   = self.masa / max(self.radio ** 3, 1e-9)
+
+        # Velocidad de escape relativa: v_esc ∝ √(M/R)
+        # (Tierra = 11.2 km/s → ratio v_p/v_Tierra = √(M_p·R_T / M_T·R_p))
+        v_esc_p = math.sqrt(max(self.masa / self.radio, 1e-9))
+
+        # Temperatura de superficie en Kelvin
+        T_p = self.temp_superficie   # ya es en K
+
+        esi = (esi_factor(self.radio,  C.ESI_R_REF,    0.57) *
+               esi_factor(rho_p,       C.ESI_RHO_REF,  1.07) *
+               esi_factor(v_esc_p,     C.ESI_VESC_REF, 0.70) *
+               esi_factor(T_p,         C.ESI_T_REF,    5.58))
+
+        return round(esi * 100.0, 1)
+
+    # ══════════════════════════════════════════════════════════════
+    #  IHH — ÍNDICE DE HABITABILIDAD HUMANA
+    #  Basado en estándares NASA/ESA para misiones tripuladas y
+    #  umbrales fisiológicos establecidos en la literatura médica
+    #  espacial (Convertino & Feiveson 2016; Rayman et al. 2020).
+    # ══════════════════════════════════════════════════════════════
+
+    def _calcular_ihh(self) -> float:
+        """
+        Índice de Habitabilidad Humana (IHH).
+        
+        A diferencia del ESI (similaridad física pura), el IHH evalúa si
+        un ser humano con tecnología de supervivencia básica (traje, filtros,
+        presurización parcial) podría vivir de forma prolongada en el planeta.
+        
+        ── FILTROS ELIMINATORIOS (retornan 0% si se activan) ──────────────
+        
+          ① Punto de Armstrong (<0.0618 atm):
+               Por debajo de esta presión, el agua corporal hierve a 37°C.
+               Sin traje, muerte en ~15 segundos. Referencia: FAA-AM-68-10.
+        
+          ② Temperatura extrema (<-90°C o >150°C):
+               Límites absolutos donde ningún material de aislamiento
+               conocido protege suficientemente para operaciones prolongadas.
+        
+          ③ Gravedad incompatible (<0.15g o >3.5g):
+               <0.15g → pérdida ósea y muscular irreversible en semanas.
+               >3.5g  → colapso cardiovascular; el corazón no puede bombear
+                        sangre al cerebro bajo esa carga.
+        
+        ── MÓDULOS DE PUNTUACIÓN (100 puntos totales) ─────────────────────
+        
+          [30 pts] Atmósfera respirable:
+               Presión parcial de O2 (p_O2 = frac_O2 × P_total):
+               • 0.16–0.30 atm → respirable sin equipo (+30 pts)
+               • 0.10–0.16 atm → hipóxico, requiere máscara (+15 pts)
+               • Presente pero fuera de rango → soporte parcial (+5 pts)
+               • Sin O2 → traje completo (+0 pts)
+        
+          [25 pts] Temperatura de confort:
+               Curva gaussiana centrada en 20°C (σ=20°C).
+               Rango confortable sin traje especializado: -20°C a 45°C.
+               Supervivencia con traje: -60°C a 60°C (+5 pts fijos).
+        
+          [20 pts] Presión atmosférica:
+               • 0.70–1.40 atm → zona de confort humano (+20 pts)
+               • 0.35–0.70 atm → tolerable con adaptación (+10 pts)
+               • 1.40–3.00 atm → requiere equipo leve (+10 pts)
+               • 3.00–5.00 atm → traje presurizado (+3 pts)
+        
+          [15 pts] Gravedad superficial:
+               • 0.80–1.25 g → máximo confort fisiológico (+15 pts)
+               • 0.50–0.80 g → adaptable en meses (ISS: 0g) (+8 pts)
+               • 1.25–1.80 g → tolerable a largo plazo (+8 pts)
+               • 0.30–0.50 g → problemas musculo-esqueléticos (+3 pts)
+               • 1.80–2.50 g → problemas cardiovasculares (+3 pts)
+        
+          [10 pts] Radiación estelar según clase espectral:
+               • G, F → espectro solar, UV manejable (+10 pts)
+               • K    → candidatas prometedoras, menos UV (+8 pts)
+               • M    → llamas estelares frecuentes, alta variabilidad (+3 pts)
+               • A    → exceso UV, vida estelar corta (+2 pts)
+               • O, B → radiación ionizante letal en superficie (+0 pts)
+        """
+        if self.tipo not in (self.ROCOSO, self.SUPER_TIERRA):
+            return 0.0
+
+        temp_c = self.temp_superficie + C.ABS_ZERO
+
+        # ── Filtros Eliminatorios ──────────────────────────────────
+        if self.presion_atm < C.IHH_ARMSTRONG:
+            return 0.0
+        if temp_c < C.IHH_TEMP_MIN_ABS or temp_c > C.IHH_TEMP_MAX_ABS:
+            return 0.0
+        if self.gravedad < C.IHH_G_MIN or self.gravedad > C.IHH_G_MAX:
+            return 0.0
+
+        score = 0.0
+
+        # ── Módulo 1: Atmósfera Respirable (30 pts) ───────────────
+        frac_o2    = self.atmosfera.get("Oxígeno (O2)", 0.0) / 100.0
+        p_o2_atm   = frac_o2 * self.presion_atm   # presión parcial de O2
+
+        if p_o2_atm > 0:
+            if 0.16 <= p_o2_atm <= 0.30:
+                score += 30.0   # Respirable sin equipo (21% O2 a 1 atm = 0.21 atm pO2)
+            elif 0.10 <= p_o2_atm < 0.16 or 0.30 < p_o2_atm <= 0.50:
+                score += 15.0   # Requiere máscara de oxígeno suplementario
+            else:
+                score += 5.0    # Presencia de O2 pero fuera de rango respirable
+        # Sin O2: +0 pts (necesita traje completo de soporte vital)
+
+        # ── Módulo 2: Temperatura (25 pts) ────────────────────────
+        if -20.0 <= temp_c <= 45.0:
+            # Curva gaussiana: máximo en 20°C, cae suavemente
+            score += 25.0 * math.exp(-((temp_c - 20.0) ** 2) / (2 * 20.0 ** 2))
+        elif -60.0 <= temp_c < -20.0 or 45.0 < temp_c <= 60.0:
+            score += 5.0    # Supervivencia con traje de protección térmica
+
+        # ── Módulo 3: Presión Atmosférica (20 pts) ────────────────
+        if 0.70 <= self.presion_atm <= 1.40:
+            score += 20.0   # Zona de confort (aviones presurizan a ~0.75 atm)
+        elif 0.35 <= self.presion_atm < 0.70 or 1.40 < self.presion_atm <= 3.00:
+            score += 10.0   # Requiere adaptación o equipo leve
+        elif self.presion_atm <= 5.00:
+            score += 3.0    # Traje presurizado necesario
+
+        # ── Módulo 4: Gravedad (15 pts) ───────────────────────────
+        if 0.80 <= self.gravedad <= 1.25:
+            score += 15.0
+        elif 0.50 <= self.gravedad < 0.80 or 1.25 < self.gravedad <= 1.80:
+            score += 8.0
+        elif 0.30 <= self.gravedad < 0.50 or 1.80 < self.gravedad <= 2.50:
+            score += 3.0
+
+        # ── Módulo 5: Radiación Estelar (10 pts) ──────────────────
+        clase = self.estrella.clasificar()
+        puntaje_radiacion = {"G": 10, "F": 10, "K": 8, "M": 3, "A": 2, "B": 0, "O": 0}
+        score += puntaje_radiacion.get(clase, 0)
+
+        return round(min(score, 100.0), 1)
+
+    def _generar_lunas(self):
         token = getattr(self, "_seed_token", f"planeta_{self.distancia_original:.4f}")
 
         if self.tipo in (self.ROCOSO, self.SUPER_TIERRA):
@@ -493,6 +636,7 @@ def obtener_sistema_aleatorio_oec() -> str:
         return random.choice(_OEC_CACHE)[0]
     return "SOL-442"
 
+
 # ══════════════════════════════════════════════════════════════════
 #  SISTEMA ESTELAR
 # ══════════════════════════════════════════════════════════════════
@@ -506,7 +650,7 @@ class SistemaEstelar:
       2. Acreción primordial (distribución Bode + margen de Hill)
       3. Migración planetaria dinámica (Júpiteres Calientes)
       4. Eliminación de órbitas inestables
-      5. Evolución termoclimática
+      5. Evolución termoclimática + ESI + IHH
     """
 
     def __init__(self, seed: str = "SOL-442"):
@@ -529,11 +673,10 @@ class SistemaEstelar:
         while dist < 40.0:
             rng_planeta = derivar_rng(self.seed, "planeta", idx)
             p = Planeta(dist, self.estrella, rng_planeta)
-            p._seed_token = f"{self.seed}_planeta_{idx}"   # token determinista para lunas
+            p._seed_token = f"{self.seed}_planeta_{idx}"
             self.planetas.append(p)
             idx += 1
 
-            # Separación orbital: Ley de Titius-Bode estocástica + estabilidad de Hill
             margen_hill = p.radio_hill * rng_planeta.uniform(3.5, 8.0)
             salto_bode  = dist * rng_planeta.uniform(1.4, 2.1)
             dist = max(dist + margen_hill, salto_bode)
@@ -556,7 +699,7 @@ class SistemaEstelar:
                 supervivientes.append(p)
         self.planetas = supervivientes
 
-        # ── 5. Termodinámica y Vida ──
+        # ── 5. Termodinámica, Vida, ESI e IHH ──
         for p in self.planetas:
             p.evolucionar_clima_y_vida()
 
@@ -569,7 +712,6 @@ class SistemaEstelar:
         print(f"    Sistema / Estrella: {self.seed}  |  Origen: Catálogo Real (OEC)".center(ancho))
         print("═" * ancho)
 
-        # Estrella
         e = self.estrella
         print(f"\n  ☀  ESTRELLA: {self.seed}  —  Clase {e.clasificar()} ({e.color_visual()})")
         print(f"     Constelación:  {self.constelacion} 🌌")
@@ -588,10 +730,48 @@ class SistemaEstelar:
         print(f"  {len(self.planetas)} planetas generados | Seed: «{self.seed}»")
         print("═" * ancho + "\n")
 
+    @staticmethod
+    def _barra_progreso(valor: float, maximo: float = 100.0, ancho: int = 20) -> str:
+        """Genera una barra de progreso ASCII proporcional al valor."""
+        llenos = int((valor / maximo) * ancho)
+        vacios = ancho - llenos
+        return f"[{'█' * llenos}{'░' * vacios}]"
+
+    @staticmethod
+    def _clasificar_esi(esi: float) -> str:
+        """
+        Clasificación cualitativa del ESI según Planetary Habitability Laboratory (UPR):
+          > 0.95  → Gemela terrestre
+          0.80–0.95 → Análoga terrestre cercana
+          0.60–0.80 → Análoga terrestre moderada
+          0.40–0.60 → Análoga terrestre lejana
+          < 0.40  → Mundo diferente
+        """
+        if esi >= 95:   return "Gemela terrestre 🌍"
+        elif esi >= 80: return "Análoga cercana 🌏"
+        elif esi >= 60: return "Análoga moderada 🌑"
+        elif esi >= 40: return "Análoga lejana 🪨"
+        else:           return "Mundo diferente ❄️"
+
+    @staticmethod
+    def _clasificar_ihh(ihh: float) -> str:
+        """
+        Niveles de habitabilidad humana:
+          > 80  → Habitable sin equipo especializado
+          60–80 → Habitable con traje/máscara
+          40–60 → Habitable con colonia presurizada
+          20–40 → Supervivencia de corto plazo con tecnología avanzada
+          < 20  → Inhabitable para humanos
+        """
+        if ihh >= 80:   return "Habitable directamente ✅"
+        elif ihh >= 60: return "Con traje/máscara 🪖"
+        elif ihh >= 40: return "Colonia presurizada 🏗️"
+        elif ihh >= 20: return "Supervivencia limitada ⚠️"
+        else:           return "Inhabitable para humanos ❌"
+
     def _renderizar_planeta(self, idx: int, p: Planeta):
         ancho = 72
 
-        # Ícono según tipo y habitabilidad
         if "Oxígeno (O2)" in p.atmosfera:
             icono = "🌍"
         elif p.tipo == Planeta.ROCOSO:
@@ -606,8 +786,6 @@ class SistemaEstelar:
             icono = "🧊"
 
         temp_c = p.temp_superficie + C.ABS_ZERO
-
-        # Sufijo astronómico b, c, d... 
         sufijo = chr(97 + idx) if idx <= 25 else str(idx)
         nombre_planeta = f"{self.seed} {sufijo}"
 
@@ -627,9 +805,8 @@ class SistemaEstelar:
 
         gases = " · ".join([f"{k}: {v:.1f}%" for k, v in p.atmosfera.items()])
         print(f"     Atmósfera:     {gases}")
-            
-        print(f"     Satélites:     {len(p.lunas)}", end="")
 
+        print(f"     Satélites:     {len(p.lunas)}", end="")
         if p.lunas:
             masas_lunas = [f"{l.masa:.4f}M⊕" for l in p.lunas[:3]]
             if len(p.lunas) > 3:
@@ -637,14 +814,47 @@ class SistemaEstelar:
             print(f"  ({', '.join(masas_lunas)})", end="")
         print()
 
+        # ── Sección de índices (solo para rocosos/super-tierras) ──
         if p.tipo in (Planeta.ROCOSO, Planeta.SUPER_TIERRA):
+            print()
+
+            # Prob. de Vida (existente)
             if p.prob_vida > 55:
-                ind = "🟢"
+                ind_vida = "🟢"
             elif p.prob_vida > 15:
-                ind = "🟡"
+                ind_vida = "🟡"
             else:
-                ind = "🔴"
-            print(f"     {ind} Prob. Vida:  {p.prob_vida:.1f}%")
+                ind_vida = "🔴"
+            barra_vida = self._barra_progreso(p.prob_vida)
+            print(f"     {ind_vida} Prob. Vida:  {p.prob_vida:5.1f}%  {barra_vida}")
+
+            # ESI — Earth Similarity Index
+            if p.esi > 0:
+                if p.esi >= 80:
+                    ind_esi = "🟢"
+                elif p.esi >= 50:
+                    ind_esi = "🟡"
+                else:
+                    ind_esi = "🔴"
+                barra_esi = self._barra_progreso(p.esi)
+                desc_esi  = self._clasificar_esi(p.esi)
+                print(f"     {ind_esi} ESI:         {p.esi:5.1f}%  {barra_esi}  {desc_esi}")
+            else:
+                print(f"     ⚫ ESI:           N/A  (no aplicable a este tipo)")
+
+            # IHH — Índice de Habitabilidad Humana
+            if p.ihh > 0:
+                if p.ihh >= 60:
+                    ind_ihh = "🟢"
+                elif p.ihh >= 30:
+                    ind_ihh = "🟡"
+                else:
+                    ind_ihh = "🔴"
+                barra_ihh = self._barra_progreso(p.ihh)
+                desc_ihh  = self._clasificar_ihh(p.ihh)
+                print(f"     {ind_ihh} IHH:         {p.ihh:5.1f}%  {barra_ihh}  {desc_ihh}")
+            else:
+                print(f"     ❌ IHH:           0.0%  {'[░░░░░░░░░░░░░░░░░░░░]'}  Inhabitable para humanos ❌")
 
         for nota in p.notas:
             print(f"     ⚠  {nota}")
@@ -659,8 +869,7 @@ class SistemaEstelar:
 if __name__ == "__main__":
     import string
     
-    # Lectura de seed desde argumentos de línea de comandos
-    seed = "SOL-442"  # Seed por defecto
+    seed = "SOL-442"
 
     args = sys.argv[1:]
     if "--seed" in args:
